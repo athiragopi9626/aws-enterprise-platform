@@ -1,0 +1,110 @@
+
+name: Terraform Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'modules/**'
+      - 'environments/primary/**'
+      - '.github/workflows/terraform-*.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-primary-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Terraform Plan and Apply
+
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+    environment: primary-deploy
+    timeout-minutes: 45
+
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: environments/primary
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.14.0'
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: terraform-primary-${{ github.run_id }}
+
+      - name: Verify AWS account
+        env:
+          EXPECTED_ACCOUNT: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
+        run: |
+          test -n "$EXPECTED_ACCOUNT"
+
+          ACTUAL_ACCOUNT=$(aws sts get-caller-identity \
+            --query Account --output text)
+
+          if [[ "$ACTUAL_ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
+            echo "::error::Unexpected AWS account"
+            exit 1
+          fi
+
+          echo "AWS account verified."
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive ../../
+
+      - name: Initialize Terraform
+        run: |
+          terraform init \
+            -input=false \
+            -lock-timeout=5m \
+            -backend-config=backend.config
+
+      - name: Validate Terraform
+        run: terraform validate -no-color
+
+      - name: Generate Terraform plan
+        run: |
+          terraform plan \
+            -input=false \
+            -lock-timeout=5m \
+            -out=tfplan
+
+      - name: Apply Terraform plan
+        run: |
+          terraform apply \
+            -input=false \
+            -lock-timeout=5m \
+            tfplan
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "## Terraform Deployment Successful" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: primary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: main" >> "$GITHUB_STEP_SUMMARY"
+          echo "- AWS authentication: OIDC" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Terraform apply: Successful" >> "$GITHUB_STEP_SUMMARY"
