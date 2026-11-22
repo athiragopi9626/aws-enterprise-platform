@@ -1,32 +1,145 @@
+
 name: Terraform CI
+
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'modules/**'
-      - 'environments/primary/**'
-      - '.github/workflows/terraform-*.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: terraform-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    name: Terraform format and validate
+    name: Terraform Format and Validate
     runs-on: ubuntu-latest
-    environment: primary-plan
+    timeout-minutes: 15
+
     defaults:
       run:
+        shell: bash
         working-directory: environments/primary
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: hashicorp/setup-terraform@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: '1.14.0'
-      - name: Format
+          terraform_version: "1.14.0"
+          terraform_wrapper: false
+
+      - name: Terraform format
         run: terraform fmt -check -recursive ../../
-      - name: Init without state or AWS credentials
+
+      - name: Terraform init without backend
         run: terraform init -backend=false -input=false
-      - name: Validate
+
+      - name: Terraform validate
         run: terraform validate -no-color
+
+  plan:
+    name: Terraform Plan
+    needs: validate
+
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.fork == false
+
+    runs-on: ubuntu-latest
+    environment: primary-plan
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: environments/primary
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.0"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: terraform-plan-${{ github.run_id }}
+
+      - name: Verify AWS account
+        env:
+          EXPECTED_ACCOUNT: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
+        run: |
+          test -n "$EXPECTED_ACCOUNT"
+          ACTUAL_ACCOUNT=$(aws sts get-caller-identity \
+            --query Account --output text)
+          test "$ACTUAL_ACCOUNT" = "$EXPECTED_ACCOUNT"
+
+      - name: Initialize S3 backend
+        run: |
+          terraform init \
+            -input=false \
+            -lock-timeout=5m \
+            -backend-config=backend.config
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          set +e
+
+          terraform plan \
+            -input=false \
+            -lock-timeout=5m \
+            -detailed-exitcode \
+            -no-color > plan.log 2>&1
+
+          EXIT_CODE=$?
+          set -e
+
+          # Keep detailed plan output out of public logs.
+          case "$EXIT_CODE" in
+            0)
+              echo "status=no-changes" >> "$GITHUB_OUTPUT"
+              echo "Terraform plan succeeded: no changes."
+              ;;
+            2)
+              echo "status=changes" >> "$GITHUB_OUTPUT"
+              echo "Terraform plan succeeded: changes detected."
+              ;;
+            *)
+              echo "::error::Terraform plan failed."
+              exit 1
+              ;;
+          esac
+
+      - name: Plan summary
+        env:
+          PLAN_STATUS: ${{ steps.plan.outputs.status }}
+        run: |
+          echo "## Terraform Plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Status: $PLAN_STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "Environment: primary" >> "$GITHUB_STEP_SUMMARY"
+          echo "AWS authentication: OIDC" >> "$GITHUB_STEP_SUMMARY"
+          echo "Backend: existing S3 bucket" >> "$GITHUB_STEP_SUMMARY"
+          echo "No infrastructure was deployed." >> "$GITHUB_STEP_SUMMARY"
