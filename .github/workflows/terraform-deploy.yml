@@ -50,36 +50,36 @@ jobs:
 
           test "$ACTUAL_ACCOUNT" = "$EXPECTED_ACCOUNT"
 
-      # Authenticate Docker using the same AWS role.
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+      # # Authenticate Docker using the same AWS role.
+      # - name: Login to Amazon ECR
+      #   uses: aws-actions/amazon-ecr-login@v2
 
       # Build the application and publish an immutable image.
-      - name: Build and Push Docker Image
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          AWS_ACCOUNT_ID: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
-          ECR_REPOSITORY: aep-primary-app
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          set -euo pipefail
+      # - name: Build and Push Docker Image
+      #   env:
+      #     AWS_REGION: ${{ vars.AWS_REGION }}
+      #     AWS_ACCOUNT_ID: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
+      #     ECR_REPOSITORY: aep-primary-app
+      #     IMAGE_TAG: ${{ github.sha }}
+      #   run: |
+      #     set -euo pipefail
 
-          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+      #     IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
-          # Avoid pushing the same immutable tag twice.
-          if aws ecr describe-images \
-            --repository-name "$ECR_REPOSITORY" \
-            --image-ids imageTag="$IMAGE_TAG" \
-            >/dev/null 2>&1; then
+      #     # Avoid pushing the same immutable tag twice.
+      #     if aws ecr describe-images \
+      #       --repository-name "$ECR_REPOSITORY" \
+      #       --image-ids imageTag="$IMAGE_TAG" \
+      #       >/dev/null 2>&1; then
 
-            echo "Image already exists: $IMAGE_URI"
-          else
-            docker build --pull \
-              -t "$IMAGE_URI" \
-              ../../app
+      #       echo "Image already exists: $IMAGE_URI"
+      #     else
+      #       docker build --pull \
+      #         -t "$IMAGE_URI" \
+      #         ../../app
 
-            docker push "$IMAGE_URI"
-          fi
+      #       docker push "$IMAGE_URI"
+      #     fi
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
