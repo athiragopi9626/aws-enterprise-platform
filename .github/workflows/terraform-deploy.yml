@@ -3,108 +3,104 @@ name: Terraform Deploy
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'modules/**'
-      - 'environments/primary/**'
-      - '.github/workflows/terraform-*.yml'
-
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
-  group: terraform-primary-deploy
+  group: primary-deployment
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Terraform Plan and Apply
-
-    if: github.ref == 'refs/heads/main'
-
+  terraform-deploy:
+    name: Build Image and Deploy Infrastructure
     runs-on: ubuntu-latest
-    environment: primary-deploy
-    timeout-minutes: 45
 
-    permissions:
-      contents: read
-      id-token: write
+    # Reuse the existing GitHub environment.
+    # Approval is required only once for this job.
+    environment: primary-deploy
 
     defaults:
       run:
-        shell: bash
         working-directory: environments/primary
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.14.0'
-          terraform_wrapper: false
-
-      - name: Configure AWS credentials via OIDC
+      # Reuse the existing Terraform deployment IAM role.
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          role-session-name: terraform-primary-${{ github.run_id }}
 
       - name: Verify AWS account
         env:
           EXPECTED_ACCOUNT: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
         run: |
-          test -n "$EXPECTED_ACCOUNT"
+          set -euo pipefail
 
           ACTUAL_ACCOUNT=$(aws sts get-caller-identity \
             --query Account --output text)
 
-          if [[ "$ACTUAL_ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
-            echo "::error::Unexpected AWS account"
-            exit 1
+          test "$ACTUAL_ACCOUNT" = "$EXPECTED_ACCOUNT"
+
+      # Authenticate Docker using the same AWS role.
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build the application and publish an immutable image.
+      - name: Build and Push Docker Image
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
+          ECR_REPOSITORY: aep-primary-app
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          # Avoid pushing the same immutable tag twice.
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            >/dev/null 2>&1; then
+
+            echo "Image already exists: $IMAGE_URI"
+          else
+            docker build --pull \
+              -t "$IMAGE_URI" \
+              ../../app
+
+            docker push "$IMAGE_URI"
           fi
 
-          echo "AWS account verified."
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - name: Check Terraform formatting
-        run: terraform fmt -check -recursive ../../
+      - name: Terraform Format
+        run: terraform fmt -check -recursive ../..
 
-      - name: Initialize Terraform
-        run: |
-          terraform init \
-            -input=false \
-            -lock-timeout=5m \
-            -backend-config=backend.config
+      - name: Terraform Init
+        run: terraform init -backend-config=backend.config -input=false
 
-      - name: Validate Terraform
-        run: terraform validate -no-color
+      - name: Terraform Validate
+        run: terraform validate
 
-      - name: Generate Terraform plan
+      # Terraform uses the image published above.
+      - name: Terraform Plan
+        env:
+          TF_VAR_image_tag: ${{ github.sha }}
         run: |
           terraform plan \
             -input=false \
-            -lock-timeout=5m \
             -out=tfplan
 
-      - name: Apply Terraform plan
-        run: |
-          terraform apply \
-            -input=false \
-            -lock-timeout=5m \
-            tfplan
-
-      - name: Deployment summary
-        if: success()
-        run: |
-          echo "## Terraform Deployment Successful" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Environment: primary" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Branch: main" >> "$GITHUB_STEP_SUMMARY"
-          echo "- AWS authentication: OIDC" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Terraform apply: Successful" >> "$GITHUB_STEP_SUMMARY"
+      - name: Terraform Apply
+        run: terraform apply -input=false tfplan
