@@ -16,7 +16,7 @@ module "networking" {
 
 
 module "vpc_flow_logs" {
-  source = "../../modules/vpc-flow-logs"
+  source = "../../modules/vpcflowlogs"
 
   name              = "aep-primary"
   vpc_id            = module.networking.vpc_id
