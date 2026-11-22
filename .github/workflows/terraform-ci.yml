@@ -102,8 +102,10 @@ jobs:
             -lock-timeout=5m \
             -backend-config=backend.config
 
-      - name: Terraform plan
+ 
+      - name: Terraform Plan
         id: plan
+        shell: bash
         run: |
           set +e
 
@@ -111,12 +113,12 @@ jobs:
             -input=false \
             -lock-timeout=5m \
             -detailed-exitcode \
-            -no-color > plan.log 2>&1
+            -no-color \
+            -out=tfplan
 
           EXIT_CODE=$?
           set -e
 
-          # Keep detailed plan output out of public logs.
           case "$EXIT_CODE" in
             0)
               echo "status=no-changes" >> "$GITHUB_OUTPUT"
@@ -127,19 +129,8 @@ jobs:
               echo "Terraform plan succeeded: changes detected."
               ;;
             *)
-              echo "::error::Terraform plan failed."
+              echo "::error::Terraform plan failed with exit code $EXIT_CODE"
               exit 1
               ;;
           esac
 
-      - name: Plan summary
-        env:
-          PLAN_STATUS: ${{ steps.plan.outputs.status }}
-        run: |
-          echo "## Terraform Plan" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Status: $PLAN_STATUS" >> "$GITHUB_STEP_SUMMARY"
-          echo "Environment: primary" >> "$GITHUB_STEP_SUMMARY"
-          echo "AWS authentication: OIDC" >> "$GITHUB_STEP_SUMMARY"
-          echo "Backend: existing S3 bucket" >> "$GITHUB_STEP_SUMMARY"
-          echo "No infrastructure was deployed." >> "$GITHUB_STEP_SUMMARY"
