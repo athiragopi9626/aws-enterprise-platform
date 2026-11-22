@@ -27,3 +27,13 @@ output "ecs_target_group_arn" {
   value       = module.application_lb.target_group_arn
 }
 
+
+output "ecr_repository_url" {
+  description = "ECR repository URL for publishing application images."
+  value       = module.ecr.repository_url
+}
+
+output "ecr_repository_name" {
+  description = "Name of the application ECR repository."
+  value       = module.ecr.repository_name
+}
