@@ -100,7 +100,7 @@ jobs:
         run: |
           terraform plan \
             -input=false \
-            -out=tfplan
+            -out=destroy.tfplan
 
       - name: Terraform Apply
-        run: terraform apply -input=false tfplan
+        run: terraform apply -input=false destroy.tfplan
