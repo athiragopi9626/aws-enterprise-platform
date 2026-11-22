@@ -12,6 +12,6 @@ variable "availability_zones" {
   }
 }
 variable "enable_nat_gateways" {
-  type = bool
+  type    = bool
   default = false
 }

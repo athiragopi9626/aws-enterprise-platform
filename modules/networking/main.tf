@@ -7,7 +7,7 @@ resource "aws_vpc" "this" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags = { Name = var.name }
+  tags                 = { Name = var.name }
 }
 
 resource "aws_internet_gateway" "this" {
@@ -21,7 +21,7 @@ resource "aws_subnet" "public" {
   availability_zone       = each.value
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, tonumber(each.key))
   map_public_ip_on_launch = false
-  tags = { Name = "${var.name}-public-${each.value}", Tier = "public" }
+  tags                    = { Name = "${var.name}-public-${each.value}", Tier = "public" }
 }
 
 resource "aws_subnet" "private" {
@@ -30,7 +30,7 @@ resource "aws_subnet" "private" {
   availability_zone       = each.value
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, tonumber(each.key) + 10)
   map_public_ip_on_launch = false
-  tags = { Name = "${var.name}-private-${each.value}", Tier = "private" }
+  tags                    = { Name = "${var.name}-private-${each.value}", Tier = "private" }
 }
 
 resource "aws_route_table" "public" {
