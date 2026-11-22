@@ -94,11 +94,12 @@ jobs:
         run: terraform validate
 
       # Terraform uses the image published above.
-      - name: Terraform Plan
+      - name: Terraform Destroy Plan
         env:
           TF_VAR_image_tag: ${{ github.sha }}
         run: |
           terraform plan \
+            -destroy \
             -input=false \
             -out=destroy.tfplan
 
