@@ -1,4 +1,6 @@
+
 name: Terraform Deploy
+
 on:
   push:
     branches: [main]
@@ -6,47 +8,103 @@ on:
       - 'modules/**'
       - 'environments/primary/**'
       - '.github/workflows/terraform-*.yml'
+
   workflow_dispatch:
+
 permissions:
   contents: read
-  id-token: write
+
 concurrency:
   group: terraform-primary-deploy
   cancel-in-progress: false
+
 jobs:
   deploy:
-    name: Approved Terraform plan and apply
+    name: Terraform Plan and Apply
+
+    if: github.ref == 'refs/heads/main'
+
     runs-on: ubuntu-latest
     environment: primary-deploy
     timeout-minutes: 45
+
+    permissions:
+      contents: read
+      id-token: write
+
     defaults:
       run:
+        shell: bash
         working-directory: environments/primary
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: hashicorp/setup-terraform@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: '1.14.0'
-      - name: Configure AWS via OIDC
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: terraform-primary-${{ github.run_id }}
-      - name: Confirm AWS account
+
+      - name: Verify AWS account
+        env:
+          EXPECTED_ACCOUNT: ${{ vars.EXPECTED_AWS_ACCOUNT_ID }}
         run: |
-          test -n "${{ vars.EXPECTED_AWS_ACCOUNT_ID }}"
-          ACTUAL=$(aws sts get-caller-identity --query Account --output text)
-          test "$ACTUAL" = "${{ vars.EXPECTED_AWS_ACCOUNT_ID }}"
-      - name: Terraform format
+          test -n "$EXPECTED_ACCOUNT"
+
+          ACTUAL_ACCOUNT=$(aws sts get-caller-identity \
+            --query Account --output text)
+
+          if [[ "$ACTUAL_ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
+            echo "::error::Unexpected AWS account"
+            exit 1
+          fi
+
+          echo "AWS account verified."
+
+      - name: Check Terraform formatting
         run: terraform fmt -check -recursive ../../
-      - name: Terraform init (existing S3 backend)
-        run: terraform init -input=false -backend-config=backend.config -lock-timeout=5m
-      - name: Terraform validate
+
+      - name: Initialize Terraform
+        run: |
+          terraform init \
+            -input=false \
+            -lock-timeout=5m \
+            -backend-config=backend.config
+
+      - name: Validate Terraform
         run: terraform validate -no-color
-      - name: Terraform plan
-        run: terraform plan -input=false -lock-timeout=5m -out=tfplan
-      - name: Apply exactly the reviewed-run plan
-        run: terraform apply -input=false -lock-timeout=5m tfplan
+
+      - name: Generate Terraform plan
+        run: |
+          terraform plan \
+            -input=false \
+            -lock-timeout=5m \
+            -out=tfplan
+
+      - name: Apply Terraform plan
+        run: |
+          terraform apply \
+            -input=false \
+            -lock-timeout=5m \
+            tfplan
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "## Terraform Deployment Successful" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: primary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: main" >> "$GITHUB_STEP_SUMMARY"
+          echo "- AWS authentication: OIDC" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Terraform apply: Successful" >> "$GITHUB_STEP_SUMMARY"
