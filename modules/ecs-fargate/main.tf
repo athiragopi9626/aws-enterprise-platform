@@ -100,8 +100,8 @@ resource "aws_ecs_service" "app" {
   tags                              = var.tags
 
   lifecycle {
-  # Application Auto Scaling controls desired_count after deployment.
-  # Prevent Terraform from resetting it to 2 on every apply.
-  ignore_changes = [desired_count]
-}
+    # Application Auto Scaling controls desired_count after deployment.
+    # Prevent Terraform from resetting it to 2 on every apply.
+    ignore_changes = [desired_count]
+  }
 }
