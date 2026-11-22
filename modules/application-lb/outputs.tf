@@ -23,3 +23,13 @@ output "listener_arn" {
   description = "ARN of the HTTP listener."
   value       = aws_lb_listener.http.arn
 }
+
+output "alb_arn_suffix" {
+  description = "CloudWatch dimension for the ALB."
+  value       = aws_lb.this.arn_suffix
+}
+
+output "target_group_arn_suffix" {
+  description = "CloudWatch dimension for the ECS target group."
+  value       = aws_lb_target_group.ecs.arn_suffix
+}

@@ -98,4 +98,10 @@ resource "aws_ecs_service" "app" {
   wait_for_steady_state             = true
   depends_on                        = [aws_iam_role_policy_attachment.execution]
   tags                              = var.tags
+
+  lifecycle {
+  # Application Auto Scaling controls desired_count after deployment.
+  # Prevent Terraform from resetting it to 2 on every apply.
+  ignore_changes = [desired_count]
+}
 }
