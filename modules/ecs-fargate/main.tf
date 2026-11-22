@@ -55,9 +55,9 @@ resource "aws_ecs_task_definition" "app" {
     cpu_architecture        = "X86_64"
   }
   container_definitions = jsonencode([{
-    name      = "app"
-    image     = "${var.repository_url}:${var.image_tag}"
-    essential = true
+    name         = "app"
+    image        = "${var.repository_url}:${var.image_tag}"
+    essential    = true
     portMappings = [{ containerPort = var.container_port, hostPort = var.container_port, protocol = "tcp" }]
     logConfiguration = {
       logDriver = "awslogs"
@@ -72,12 +72,12 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 resource "aws_ecs_service" "app" {
-  name            = "${var.name}-service"
-  cluster         = aws_ecs_cluster.this.id
-  task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = var.desired_count
-  launch_type     = "FARGATE"
-  platform_version = "LATEST"
+  name                               = "${var.name}-service"
+  cluster                            = aws_ecs_cluster.this.id
+  task_definition                    = aws_ecs_task_definition.app.arn
+  desired_count                      = var.desired_count
+  launch_type                        = "FARGATE"
+  platform_version                   = "LATEST"
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
   deployment_circuit_breaker {
@@ -96,6 +96,6 @@ resource "aws_ecs_service" "app" {
   }
   health_check_grace_period_seconds = 60
   wait_for_steady_state             = true
-  depends_on = [aws_iam_role_policy_attachment.execution]
-  tags = var.tags
+  depends_on                        = [aws_iam_role_policy_attachment.execution]
+  tags                              = var.tags
 }
